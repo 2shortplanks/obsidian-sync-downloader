@@ -6,13 +6,15 @@ use feature 'say';
 
 use HTTP::Tiny;
 use File::Temp qw(tempdir);
+use JSON::PP qw(decode_json);
 
 ##########
 # build
 ##########
 
 # work out what the latest deb is
-my $response = HTTP::Tiny->new->get('https://obsidian.md/download');
+my $tiny = HTTP::Tiny->new;
+my $response = $tiny->get('https://obsidian.md/download');
 unless($response->{success}) {
     die "Couldn't download https://obsidian.md/download";
 }
@@ -20,9 +22,35 @@ my ($url) = $response->{content} =~ /"([^"]+[.]deb)"/
     or die "Can't find url of Obsidian!";
 
 # what's the tag?  we're going to need that later!
-my ($tag) = $url =~ /obsidian_([^_]+)_/
-  or die "Can't parse tag";
-$tag .= ".".time;
+my ($obsidian_version) = $url =~ /obsidian_([^_]+)_/
+  or die "Can't parse version number";
+my $tag = "$obsidian_version.".time;
+
+# if we're running a scheudled pipeline, check if this tag is already been
+# uploaded to dockerhub, if so, do nothing
+if ($ENV{CIRCLE_TRIGGER} && $ENV{CIRCLE_TRIGGER} eq 'scheduled_pipeline') {
+    my $api_url = 'https://hub.docker.com/v2/namespaces/2shortplanks/repositories/obsidian-sync-downloader/tags?page_size=100';
+    while (1) {
+        my $res = $tiny->get($api_url);
+        unless ($res->{success}) {
+            die "Failure downloading from '$api_url': $response->{status} $response->{reason}";
+        }
+
+        my $data = decode_json($res->{content});
+        for my $result ($data->{results}->@*) {
+            next unless index($result->{name}, "$obsidian_version.") == 0;
+            say "Found pre-existing tag '$result->{name}' for $obsidian_version, not building";
+            exit 0;
+        }
+
+        last unless $data->{next};
+        $api_url = $data->{next}
+    }
+}
+
+##########
+# work out versions
+##########
 
 # build the docker umage with that deb
 system(
@@ -85,6 +113,10 @@ say "Sync worked okay!";
 ##########
 # upload
 ##########
+
+if ($ENV{CIRCLE_BRANCH} && $ENV{CIRCLE_BRANCH} ne "main") {
+    say "Not uploading to dockerhub as we're not building on main";
+}
 
 say "Logging onto dockerhub";
 
