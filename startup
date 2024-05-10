@@ -1,0 +1,318 @@
+#!/usr/bin/perl
+
+use v5.38.0;
+use warnings;
+no warnings 'experimental';
+use experimental 'signatures';
+
+use IPC::Open3 qw(open3);
+use File::Path qw(make_path);
+
+# force exit
+$SIG{INT} = sub { 
+    print "Interrupted, exiting\n"; 
+    exit(1); 
+};
+
+make_path("/tmp/osd");
+
+#############################################################################
+# Utility functions
+#############################################################################
+
+sub err :prototype($) ($message) {
+    print $message;
+    exit 1;
+}
+
+sub run(@args) {
+    open my $fh, ">>", "/var/log/startup";
+    my $pid = open3(undef,$fh,$fh,@args);
+    return waitpid($pid,0);
+}
+
+my @pids;
+sub run_in_background_forever(@args) {
+    my $pid = fork;
+    unless (defined $pid) { err "Can't fork" }
+    if ($pid) {
+        push @pids, $pid;
+        return;
+    }
+    open STDOUT, '>>', '/var/log/startup';
+    open STDERR, '>&STDOUT' or die "Can't dup STDOUT: $!";
+    exec(@args);
+}
+
+sub pause :prototype($) ($seconds) {
+    select undef, undef, undef, $seconds;
+}
+
+sub running_terminal {
+    return -t STDIN;
+}
+
+sub yn :prototype($) ($prompt) {
+    print "$prompt ";
+    my $result = <STDIN>;
+    chomp $result;
+    return $result =~ /^y(?:es)?$/i;
+}
+
+sub key_press :prototype($) ($key)  {
+    run("xdotool", "key", $key) or die $!
+}
+
+sub press_tab    :prototype() { key_press("Tab")    }
+sub press_space  :prototype() { key_press("space")  }  # must be lowercase...dunno why
+sub press_return :prototype() { key_press("Return") }
+
+sub type :prototype($) ($string) {
+    run("xdotool","type",$string) or die $!;
+}
+
+
+sub screen_text() {
+    my $n = calling_line_number();
+    mkdir 
+    run("import","-window","root","/tmp/osd/screenshot-$n.png") or die "Can't screenshot";
+    run("tesseract","/tmp/osd/screenshot-$n.png","/tmp/osd/ocr-$n") or die "Can't ocr";
+    open my $fh, "<", "/tmp/osd/ocr-$n.txt" or die "Can't open result of ocr";
+    local $/;
+    return scalar <$fh>;
+}
+
+sub wait_for_matching_text($string, $timeout //= 60) {
+    my $deadline = time + $timeout;
+    while (time <= $deadline) {
+        say qq!Waiting for string "$string" in output!;
+        my $screen_text = screen_text();
+        return if index(fc($screen_text), fc($string)) != -1;
+        pause 1;
+    }
+    err "Timed out while waiting for matching text\n";
+}
+
+sub calling_line_number {
+    my $n=0;
+    $n++ while caller($n);
+    return ((caller($n-1))[2]);
+}
+
+#############################################################################
+# ENV VAR PARSING
+#############################################################################
+
+my $sync_username = $ENV{OBSIDIAN_SYNC_USERNAME} // err <<'ERROR';
+
+OBSIDIAN_SYNC_USERNAME enviroment variable not set.
+
+You must set the OBSIDIAN_SYNC_USERNAME enviroment variable to the Obsidian
+Sync username for your account.
+
+ERROR
+
+my $sync_password = $ENV{OBSIDIAN_SYNC_PASSWORD} // err <<'ERROR';
+
+OBSIDIAN_SYNC_PASSWORD enviroment variable not set.
+
+You must set the OBSIDIAN_SYNC_PASSWORD enviroment variable to the Obsidian
+Sync password for your account.
+
+ERROR
+
+my $sync_passphrase = $ENV{OBSIDIAN_SYNC_PASSPHRASE};
+my @exclude_folders = split /,/, ($ENV{OBSIDIAN_SYNC_EXCLUDE_FOLDERS} || "");
+my $vault_ordinal   = $ENV{OBSIDIAN_VAULT_ORDINAL} || 1;
+my $sync_timeout    = $ENV{OBSIDIAN_SYNC_TIMEOUT} || 3600;
+
+my $accept_t_and_c = length($ENV{ACCEPT_OBSIDIAN_TERMS_AND_CONDITIONS}//"");
+my $run_forever    = length($ENV{RUN_FOREVER}//"");
+my $copy_vault_to  = $ENV{COPY_VAULT_TO};
+
+#############################################################################
+# T&C
+#############################################################################
+
+unless ($accept_t_and_c) {
+    print <<'TERMS';
+
+In order for this Docker container to run, it must launch a copy of Obsidian.
+Obsidian is not free software and use is bound by the terms and conditions that
+can be found online at:
+
+   https://obsidian.md/terms
+
+As the author of this Docker image I wish to draw your attention particuarly to
+section "OBSIDIAN (D) Commercial Use" and the requirement for purchasing a
+license in this circumstance.
+
+(You can automatically accept the terms and conditions by setting the
+ACCEPT_OBSIDIAN_TERMS_AND_CONDITIONS environment variable to a non empty string)
+
+Before you proceed you must accept the terms and conditions.
+
+TERMS
+
+    if (running_terminal()) {
+        unless (yn "Do you accept the terms and conditions? (y/n)") {
+            say "Since you did not accept the terms and conditions, exiting.";
+            exit 1;
+        }
+    } else {
+        err <<'CANNOT';
+This script cannot prompt you to accept the terms and conditions because there
+is no terminal assigned to it (this probably means you ran the docker command
+without passing the "-it" flags).
+
+Either run the command with an attached terminal (i.e. add "-it" options to
+docker run) or set the ACCEPT_OBSIDIAN_TERMS_AND_CONDITIONS environment variable
+(i.e. pass the "-e ACCEPT_OBSIDIAN_TERMS_AND_CONDITIONS=1" option to docker run)
+CANNOT
+    }
+}
+
+say "Obsidian terms and conditions accepted";
+
+# start the xserver in the backgound
+run_in_background_forever(qw"Xvfb :20 -screen 0 1024x768x24");
+pause 1;
+run_in_background_forever(qw"x11vnc -display :20 -forever -wait 0");
+
+# pause for the xserver to start
+$ENV{DISPLAY} = ":20";
+while (!run("xdotool","key","space")) {
+    say "Waiting for the xserver to start";
+    pause 1;
+}
+
+print "xserver started up!\n";
+
+run_in_background_forever("obsidian","--no-sandbox");
+
+# click the login button
+wait_for_matching_text("Create a new Obsidian vault");
+press_tab;
+press_tab;
+press_tab;
+press_tab;
+press_return;
+
+# enter username and password
+wait_for_matching_text("Password");
+press_tab;
+type $sync_username;
+press_tab;
+type $sync_password;
+press_tab;
+press_return;
+
+# click the vault button
+wait_for_matching_text("Create a synced vault on this device");
+for (0..($vault_ordinal-1)) {
+    press_tab;
+}
+press_return;
+
+# change the name of the vault to "vault"
+wait_for_matching_text("Pick a name for your awesome vault");
+press_tab;
+type "vault";
+press_tab;
+press_tab;
+press_return;
+
+# enter the encryption passphrase
+if (defined $sync_passphrase) {
+    wait_for_matching_text("Enter encryption password");
+    type $sync_passphrase;
+    press_return;
+}
+
+# setup excluded folders
+wait_for_matching_text("You're now connected to");
+press_return;
+wait_for_matching_text("Obsidian Sync is currently excluding 0 folders");
+for my $folder (@exclude_folders) {
+    type $folder;
+    press_return;
+}
+press_tab;
+press_return;
+
+# start syncing
+wait_for_matching_text("Setup connection");
+press_tab;
+press_return;
+
+# turn on all file types
+wait_for_matching_text("Core plugins");
+press_tab;
+pause 0.1;
+press_tab;
+pause 0.1;
+press_tab;
+pause 0.1;
+press_tab;
+pause 0.1;
+press_tab;
+pause 0.1;
+press_tab;
+pause 0.1;
+press_tab;
+pause 0.1;
+press_tab;
+pause 0.1;
+press_tab;
+pause 0.1;
+press_tab;
+pause 0.1;
+press_tab;
+pause 0.1;
+press_tab;
+pause 0.1;
+press_space;
+pause 0.1;
+press_tab;
+pause 0.1;
+press_space;
+pause 0.1;
+press_tab;
+pause 0.1;
+press_space;
+pause 0.1;
+press_tab;
+pause 0.1;
+press_space;
+pause 0.1;
+press_space;
+pause 0.1;
+press_space;
+
+# start looking at the logs and wait to see we're done
+for (1..16) {
+    press_tab;
+    pause 0.1;
+}
+press_return;
+wait_for_matching_text("Fully Synced", $sync_timeout);
+say "Now fully synced";
+
+if ($copy_vault_to) {
+    say "Copying vault to $copy_vault_to";
+    $copy_vault_to .= "/" unless $copy_vault_to =~ qr!/$!;
+    run("rsync","-a","/root/vault/",$copy_vault_to) or die $!;
+    say "Done copying";
+}
+
+# are we running forever?
+if ($run_forever) {
+    while (1) {
+        pause 60;
+        say "Running forever...";
+    }
+}
+
+# all done
+say "Exiting";
+exit 0;

@@ -1,0 +1,103 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use feature 'say';
+
+use HTTP::Tiny;
+use File::Temp qw(tempdir);
+
+##########
+# build
+##########
+
+# work out what the latest deb is
+my $response = HTTP::Tiny->new->get('https://obsidian.md/download');
+unless($response->{success}) {
+    die "Couldn't download https://obsidian.md/download";
+}
+my ($url) = $response->{content} =~ /"([^"]+[.]deb)"/
+    or die "Can't find url of Obsidian!";
+
+# what's the tag?  we're going to need that later!
+my ($tag) = $url =~ /obsidian_([^_]+)_/
+  or die "Can't parse tag";
+$tag .= ".".time;
+
+# build the docker umage with that deb
+system(
+    "docker", "build",
+    "--build-arg", "OBSIDIAN_URL=$url",
+    "-t", "2shortplanks/obsidian-sync-downloader",
+    ".",
+) == 0 or die "Can't docker build";
+
+##########
+# test
+##########
+
+die "OBSIDIAN_SYNC_USERNAME not set" unless defined $ENV{OBSIDIAN_SYNC_USERNAME};
+die "OBSIDIAN_SYNC_PASSWORD not set" unless defined $ENV{OBSIDIAN_SYNC_PASSWORD};
+die "OBSIDIAN_SYNC_PASSPHRASE not set" unless defined $ENV{OBSIDIAN_SYNC_PASSPHRASE};
+die "OBSIDIAN_SYNC_ORDINAL not set" unless defined $ENV{OBSIDIAN_SYNC_ORDINAL};
+
+my $tmpdir = tempdir;
+print "Syncing to local dir $tmpdir\n";
+
+system(
+    "docker", "run",
+
+    # the credentials from our env
+    "-e", "OBSIDIAN_SYNC_USERNAME=$ENV{OBSIDIAN_SYNC_USERNAME}",
+    "-e", "OBSIDIAN_SYNC_PASSWORD=$ENV{OBSIDIAN_SYNC_PASSWORD}",
+    "-e", "OBSIDIAN_SYNC_PASSPHRASE=$ENV{OBSIDIAN_SYNC_PASSPHRASE}",
+
+    # which vault?
+    "-e", "OBSIDIAN_VAULT_ORDINAL=$ENV{OBSIDIAN_SYNC_ORDINAL}",
+
+    # exclude folders
+    "-e", "OBSIDIAN_SYNC_EXCLUDE_FOLDERS=exclude,exclude-also",
+
+    # where we're copying the result to
+    "-e", "COPY_VAULT_TO=/output",
+    "-v", "$tmpdir:/output",
+
+    # and all the standard things
+    "-e", "ACCEPT_OBSIDIAN_TERMS_AND_CONDITIONS=1",
+    "--name", "test", "--rm",
+    "2shortplanks/obsidian-sync-downloader",
+) == 0 or die "Can't test";
+
+say "Checking files were synced okay";
+
+# check the content we expect to be there is there
+unless (system("grep","-q","-r","-i","turnip",$tmpdir) == 0) {
+    die "Can't find sentinal 'turnip' in synced data as expected";
+}
+
+# check the content in the excluded directories aren't there
+if (system("grep","-q","-r","-i","aardvard",$tmpdir) == 0) {
+    die "Found unexpected sentinal 'aardvark' in synced data";
+}
+
+say "Sync worked okay!";
+
+##########
+# upload
+##########
+
+say "Logging onto dockerhub";
+
+system('echo "$DOCKERHUB_PASSWORD" | docker login -u $DOCKERHUB_USERNAME --password-stdin') == 0
+  or die "Can't login to dockerhub!";
+
+say "Uploading to dockerhub";
+
+system("docker","tag","2shortplanks/obsidian-sync-downloader:latest", "2shortplanks/obsidian-sync-downloader:$tag") == 0
+  or die "Can't tag";
+
+system("docker","push","2shortplanks/obsidian-sync-downloader:$tag") == 0
+  or die "Can't push $tag to dockerhub";
+
+system("docker","push","2shortplanks/obsidian-sync-downloader:latest") == 0
+  or die "Can't push latest to dockerhub";
