@@ -114,6 +114,11 @@ say "Sync worked okay!";
 # upload
 ##########
 
+unless ($ENV{DOCKERHUB_USERNAME}) {
+    print "Dockerhub username not configured, not uploading\n";
+    exit 0;
+}
+
 if ($ENV{CIRCLE_BRANCH} && $ENV{CIRCLE_BRANCH} ne "main") {
     say "Not uploading to dockerhub as we're not building on main";
 }
