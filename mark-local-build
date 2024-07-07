@@ -1,0 +1,14 @@
+#!/bin/sh
+
+# these are my personal settings for building on my laptop for testing locally
+
+# this uses the 1password command line tool to get details from 1password
+# directly.  Instructions for setting this up are at
+# https://developer.1password.com/docs/cli/get-started/
+
+export OBSIDIAN_SYNC_USERNAME='mark@twoshortplanks.com'
+export OBSIDIAN_SYNC_PASSWORD=$(op read op://Private/Obsidian/password)
+export OBSIDIAN_SYNC_PASSPHRASE="toomanysecrets"
+export OBSIDIAN_SYNC_ORDINAL=2
+
+exec ./build
