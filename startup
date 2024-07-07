@@ -224,7 +224,7 @@ press_return;
 
 # enter the encryption passphrase
 if (defined $sync_passphrase) {
-    wait_for_matching_text("Enter encryption password");
+    wait_for_matching_text("Encryption password");
     type $sync_passphrase;
     press_return;
 }
