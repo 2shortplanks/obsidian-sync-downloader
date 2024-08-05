@@ -22,7 +22,7 @@ my ($url) = $response->{content} =~ /"([^"]+[.]deb)"/
     or die "Can't find url of Obsidian!";
 
 # what's the tag?  we're going to need that later!
-my ($obsidian_version) = $url =~ /obsidian-([0-9.]+)-/
+my ($obsidian_version) = $url =~ /obsidian[-_]([0-9.]+)[-_]/
   or die "Can't parse version number from url $url";
 my $tag = "$obsidian_version.".time;
 
