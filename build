@@ -23,7 +23,7 @@ my ($url) = $response->{content} =~ /"([^"]+[.]deb)"/
 
 # what's the tag?  we're going to need that later!
 my ($obsidian_version) = $url =~ /obsidian-([0-9.]+)-/
-  or die "Can't parse version number";
+  or die "Can't parse version number from url $url";
 my $tag = "$obsidian_version.".time;
 
 # if we're running a scheudled pipeline, check if this tag is already been
