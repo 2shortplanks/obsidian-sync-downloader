@@ -73,6 +73,10 @@ die "OBSIDIAN_SYNC_ORDINAL not set" unless defined $ENV{OBSIDIAN_SYNC_ORDINAL};
 my $tmpdir = tempdir;
 print "Syncing to local dir $tmpdir\n";
 
+# clear out the debug files
+system("rm","-rf","/tmp/osd") == 0 or die "Can't clear out debug files";
+mkdir "/tmp/osd" or die "Can't make debug dir";
+
 system(
     "docker", "run",
 
@@ -90,6 +94,9 @@ system(
     # where we're copying the result to
     "-e", "COPY_VAULT_TO=/output",
     "-v", "$tmpdir:/output",
+
+    # where the debug files will be put on the local machine
+    "-v", "/tmp/osd:/tmp/osd",
 
     # and all the standard things
     "-e", "ACCEPT_OBSIDIAN_TERMS_AND_CONDITIONS=1",
