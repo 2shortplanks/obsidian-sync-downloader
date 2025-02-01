@@ -98,6 +98,10 @@ system(
     # where the debug files will be put on the local machine
     "-v", "/tmp/osd:/tmp/osd",
 
+    # allow connecting to the vnc server running on docker for debugging
+    # from the local machine only
+    "-p", "127.0.0.1:5900:5900",
+
     # and all the standard things
     "-e", "ACCEPT_OBSIDIAN_TERMS_AND_CONDITIONS=1",
     "--name", "test", "--rm",
