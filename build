@@ -55,6 +55,7 @@ if ($ENV{CIRCLE_TRIGGER} && $ENV{CIRCLE_TRIGGER} eq 'scheduled_pipeline') {
 # build the docker umage with that deb
 system(
     "docker", "build",
+    "--platform=linux/amd64",
     "--build-arg", "OBSIDIAN_URL=$url",
     "-t", "2shortplanks/obsidian-sync-downloader",
     ".",
