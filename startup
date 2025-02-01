@@ -71,6 +71,10 @@ sub type :prototype($) ($string) {
     run("xdotool","type",$string) or die $!;
 }
 
+sub click :prototype($$) ($x,$y) {
+    run("xdotool","mousemove","--sync",$x,$y);
+    run("xdotool","click",1);
+}
 
 sub screen_text() {
     my $n = calling_line_number();
@@ -226,12 +230,15 @@ press_return;
 if (defined $sync_passphrase) {
     wait_for_matching_text("Encryption password");
     type $sync_passphrase;
+    press_tab;
     press_return;
 }
 
 # setup excluded folders
 wait_for_matching_text("You're now connected to");
+press_tab;
 press_return;
+
 wait_for_matching_text("Obsidian Sync is currently excluding 0 folders");
 for my $folder (@exclude_folders) {
     type $folder;
@@ -241,53 +248,22 @@ press_tab;
 press_return;
 
 # start syncing
-wait_for_matching_text("Setup connection");
+wait_for_matching_text("You're now connected to");
 press_tab;
 press_return;
 
 # turn on all file types
+# we used to be able to do this with the old setup process just with the
+# keyboard, but now we need to click the mouse
+key_press "ctrl+comma";
 wait_for_matching_text("Core plugins");
-press_tab;
-pause 0.1;
-press_tab;
-pause 0.1;
-press_tab;
-pause 0.1;
-press_tab;
-pause 0.1;
-press_tab;
-pause 0.1;
-press_tab;
-pause 0.1;
-press_tab;
-pause 0.1;
-press_tab;
-pause 0.1;
-press_tab;
-pause 0.1;
-press_tab;
-pause 0.1;
-press_tab;
-pause 0.1;
-press_tab;
-pause 0.1;
-press_space;
-pause 0.1;
-press_tab;
-pause 0.1;
-press_space;
-pause 0.1;
-press_tab;
-pause 0.1;
-press_space;
-pause 0.1;
-press_tab;
-pause 0.1;
-press_space;
-pause 0.1;
-press_space;
-pause 0.1;
-press_space;
+click 85, 608;
+wait_for_matching_text("Sync status");
+for (1..15) {
+    press_tab;
+    pause 0.1;
+}
+press_return;
 
 # start looking at the logs and wait to see we're done
 for (1..16) {
