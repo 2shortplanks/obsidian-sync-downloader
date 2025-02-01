@@ -8,6 +8,10 @@ jobs:
       - run: 
           name: build!
           command: ./build
+      - store_artifacts:
+          path: /tmp/osd
+      - store_artifacts:
+          path: /var/log/startup
     environment:
       CIRCLE_TRIGGER: << pipeline.trigger_source >>
 
